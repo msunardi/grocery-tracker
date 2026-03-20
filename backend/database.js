@@ -56,6 +56,18 @@ export const deleteReceiptById = db.prepare(`
   DELETE FROM receipts WHERE id = ?
 `);
 
+export const updateReceipt = db.prepare(`
+  UPDATE receipts SET store_name = @store_name, purchase_date = @purchase_date, total_price = @total_price WHERE id = @id
+`);
+
+export const updateItem = db.prepare(`
+  UPDATE items SET name = @name, category = @category, quantity = @quantity, price = @price WHERE id = @id
+`);
+
+export const deleteItemById = db.prepare(`
+  DELETE FROM items WHERE id = ?
+`);
+
 export const getAnalytics = db.prepare(`
   SELECT
     COUNT(*) as total_receipts,

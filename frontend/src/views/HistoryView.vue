@@ -64,16 +64,36 @@
       <div class="modal-content">
         <div class="modal-header">
           <div class="modal-store-info">
-            <h2>{{ selectedReceipt.receipt.store_name }}</h2>
-            <p v-if="selectedReceipt.receipt.purchase_date">
-              📅 {{ formatDate(selectedReceipt.receipt.purchase_date) }}
-            </p>
+            <!-- View mode -->
+            <template v-if="!editMode">
+              <h2>{{ selectedReceipt.receipt.store_name }}</h2>
+              <p v-if="selectedReceipt.receipt.purchase_date">
+                📅 {{ formatDate(selectedReceipt.receipt.purchase_date) }}
+              </p>
+            </template>
+            <!-- Edit mode -->
+            <template v-else>
+              <input
+                v-model="editData.store_name"
+                class="edit-input edit-store-name"
+                placeholder="Store name"
+              />
+              <input
+                v-model="editData.purchase_date"
+                type="date"
+                class="edit-input edit-date"
+              />
+            </template>
           </div>
-          <button class="modal-close" @click="closeReceipt">✕</button>
+          <div class="modal-header-actions">
+            <button v-if="!editMode" class="btn-icon" title="Edit receipt" @click="enterEditMode">✏️</button>
+            <button class="modal-close" @click="closeReceipt">✕</button>
+          </div>
         </div>
 
         <div class="modal-items">
-          <div class="items-table">
+          <!-- View mode table -->
+          <div v-if="!editMode" class="items-table">
             <div class="table-header">
               <span class="col-name">Item</span>
               <span class="col-category">Category</span>
@@ -98,7 +118,30 @@
             </div>
           </div>
 
-          <div v-if="selectedReceipt.items.length === 0" class="no-items">
+          <!-- Edit mode table -->
+          <div v-else class="items-table items-table-edit">
+            <div class="table-header table-header-edit">
+              <span class="col-name">Item</span>
+              <span class="col-qty">Qty</span>
+              <span class="col-price">Price</span>
+              <span class="col-del"></span>
+            </div>
+            <div
+              v-for="(item, index) in editData.items"
+              :key="item.id ?? 'new-' + index"
+              class="table-row table-row-edit"
+            >
+              <input v-model="item.name" class="edit-input" placeholder="Item name" />
+              <input v-model="item.quantity" class="edit-input" placeholder="Qty" />
+              <input v-model="item.price" type="number" step="0.01" min="0" class="edit-input edit-price-input" placeholder="0.00" />
+              <button class="btn-delete-item" title="Remove item" @click="removeItem(index)">✕</button>
+            </div>
+            <div class="add-item-row">
+              <button class="btn btn-add-item" @click="addItem">+ Add Item</button>
+            </div>
+          </div>
+
+          <div v-if="!editMode && selectedReceipt.items.length === 0" class="no-items">
             No items recorded for this receipt.
           </div>
         </div>
@@ -106,13 +149,32 @@
         <div class="modal-footer">
           <div class="modal-total">
             <span class="total-label">TOTAL</span>
-            <span class="total-amount">
+            <span v-if="!editMode" class="total-amount">
               {{ selectedReceipt.receipt.total_price != null ? formatPrice(selectedReceipt.receipt.total_price) : '—' }}
             </span>
+            <input
+              v-else
+              v-model="editData.total_price"
+              type="number"
+              step="0.01"
+              min="0"
+              class="edit-input edit-total-input"
+              placeholder="0.00"
+            />
           </div>
-          <button class="btn btn-danger" @click="deleteReceipt(selectedReceipt.receipt.id)">
-            🗑 Delete Receipt
-          </button>
+          <div class="footer-actions">
+            <template v-if="!editMode">
+              <button class="btn btn-danger" @click="deleteReceipt(selectedReceipt.receipt.id)">
+                🗑 Delete Receipt
+              </button>
+            </template>
+            <template v-else>
+              <button class="btn btn-secondary" @click="cancelEdit" :disabled="saving">Cancel</button>
+              <button class="btn btn-primary" @click="saveEdit" :disabled="saving">
+                {{ saving ? 'Saving…' : '✓ Save' }}
+              </button>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -127,6 +189,11 @@ const receipts = ref([]);
 const loading = ref(true);
 const searchQuery = ref('');
 const selectedReceipt = ref(null);
+
+const editMode = ref(false);
+const editData = ref(null);
+const deletedItemIds = ref([]);
+const saving = ref(false);
 
 const filteredReceipts = computed(() => {
   if (!searchQuery.value) return receipts.value;
@@ -159,6 +226,9 @@ async function openReceipt(id) {
 
 function closeReceipt() {
   selectedReceipt.value = null;
+  editMode.value = false;
+  editData.value = null;
+  deletedItemIds.value = [];
 }
 
 async function deleteReceipt(id) {
@@ -169,6 +239,79 @@ async function deleteReceipt(id) {
     closeReceipt();
   } catch (e) {
     console.error(e);
+  }
+}
+
+function enterEditMode() {
+  editData.value = {
+    store_name: selectedReceipt.value.receipt.store_name,
+    purchase_date: selectedReceipt.value.receipt.purchase_date || '',
+    total_price: selectedReceipt.value.receipt.total_price ?? '',
+    items: selectedReceipt.value.items.map(item => ({ ...item })),
+  };
+  deletedItemIds.value = [];
+  editMode.value = true;
+}
+
+function cancelEdit() {
+  editMode.value = false;
+  editData.value = null;
+  deletedItemIds.value = [];
+}
+
+function removeItem(index) {
+  const item = editData.value.items[index];
+  if (item.id) deletedItemIds.value.push(item.id);
+  editData.value.items.splice(index, 1);
+}
+
+function addItem() {
+  editData.value.items.push({ name: '', quantity: '1', price: '' });
+}
+
+async function saveEdit() {
+  saving.value = true;
+  try {
+    const receiptId = selectedReceipt.value.receipt.id;
+
+    await axios.put(`/api/receipts/${receiptId}`, {
+      store_name: editData.value.store_name,
+      purchase_date: editData.value.purchase_date || null,
+      total_price: editData.value.total_price !== '' ? Number(editData.value.total_price) : null,
+    });
+
+    for (const id of deletedItemIds.value) {
+      await axios.delete(`/api/items/${id}`);
+    }
+
+    for (const item of editData.value.items) {
+      if (item.id) {
+        await axios.put(`/api/items/${item.id}`, {
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price !== '' ? Number(item.price) : null,
+        });
+      } else if (item.name.trim()) {
+        await axios.post(`/api/receipts/${receiptId}/items`, {
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price !== '' ? Number(item.price) : null,
+        });
+      }
+    }
+
+    const res = await axios.get(`/api/receipts/${receiptId}`);
+    selectedReceipt.value = res.data;
+    const idx = receipts.value.findIndex(r => r.id === receiptId);
+    if (idx !== -1) receipts.value[idx] = res.data.receipt;
+
+    editMode.value = false;
+    editData.value = null;
+    deletedItemIds.value = [];
+  } catch (e) {
+    console.error(e);
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -378,6 +521,11 @@ onMounted(loadReceipts);
   border-bottom: 1px solid #f3f4f6;
 }
 
+.modal-store-info {
+  flex: 1;
+  min-width: 0;
+}
+
 .modal-store-info h2 {
   font-size: 1.4rem;
   font-weight: 800;
@@ -388,6 +536,13 @@ onMounted(loadReceipts);
 .modal-store-info p {
   color: #6b7280;
   font-size: 0.9rem;
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .modal-close {
@@ -403,6 +558,22 @@ onMounted(loadReceipts);
 }
 
 .modal-close:hover { background: #e5e7eb; color: #374151; }
+
+.btn-icon {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover { background: #dcfce7; }
 
 .modal-items {
   padding: 1rem 1.5rem;
@@ -436,6 +607,12 @@ onMounted(loadReceipts);
   color: #1b4332;
 }
 
+.footer-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 /* Table styles (shared) */
 .items-table { display: flex; flex-direction: column; }
 
@@ -445,6 +622,10 @@ onMounted(loadReceipts);
   gap: 0.5rem;
   padding: 0.6rem 0.5rem;
   align-items: center;
+}
+
+.table-header-edit, .table-row-edit {
+  grid-template-columns: 1fr 80px 90px 28px;
 }
 
 .table-header {
@@ -474,6 +655,83 @@ onMounted(loadReceipts);
   font-style: italic;
 }
 
+/* Edit inputs */
+.edit-input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.9rem;
+  color: #1a202c;
+  width: 100%;
+  box-sizing: border-box;
+  background: #fafafa;
+  transition: border-color 0.15s;
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: #2d6a4f;
+  background: white;
+}
+
+.edit-store-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.edit-date {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.edit-price-input {
+  text-align: right;
+}
+
+.edit-total-input {
+  font-size: 1.4rem;
+  font-weight: 700;
+  width: 120px;
+  text-align: right;
+  color: #1b4332;
+}
+
+.btn-delete-item {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.btn-delete-item:hover { opacity: 1; }
+
+.add-item-row {
+  padding: 0.75rem 0.5rem 0.25rem;
+}
+
+.btn-add-item {
+  background: #f0fdf4;
+  border: 1px dashed #86efac;
+  color: #2d6a4f;
+  padding: 0.4rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-add-item:hover { background: #dcfce7; border-color: #4ade80; }
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -488,10 +746,19 @@ onMounted(loadReceipts);
   transition: all 0.2s;
 }
 
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .btn-primary {
   background: linear-gradient(135deg, #2d6a4f, #1b4332);
   color: white;
 }
+
+.btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.btn-secondary:hover { background: #e5e7eb; }
 
 .btn-danger {
   background: #fee2e2;

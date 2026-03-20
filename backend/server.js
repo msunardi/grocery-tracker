@@ -12,6 +12,9 @@ import {
   getReceiptById,
   getItemsByReceiptId,
   deleteReceiptById,
+  updateReceipt,
+  updateItem,
+  deleteItemById,
   getAnalytics,
   getSpendingByCategory,
   getSpendingByStore,
@@ -211,6 +214,47 @@ app.get('/api/receipts/:id', (req, res) => {
   }
   const items = getItemsByReceiptId.all(req.params.id);
   res.json({ receipt, items });
+});
+
+// Update receipt metadata
+app.put('/api/receipts/:id', (req, res) => {
+  const receipt = getReceiptById.get(req.params.id);
+  if (!receipt) return res.status(404).json({ error: 'Receipt not found' });
+  const { store_name, purchase_date, total_price } = req.body;
+  updateReceipt.run({ id: req.params.id, store_name, purchase_date: purchase_date || null, total_price: total_price != null ? Number(total_price) : null });
+  const updated = getReceiptById.get(req.params.id);
+  const items = getItemsByReceiptId.all(req.params.id);
+  res.json({ receipt: updated, items });
+});
+
+// Add item to receipt
+app.post('/api/receipts/:id/items', (req, res) => {
+  const receipt = getReceiptById.get(req.params.id);
+  if (!receipt) return res.status(404).json({ error: 'Receipt not found' });
+  const { name, quantity, price } = req.body;
+  const category = categorizeItem(name || '');
+  const result = insertItem.run({
+    receipt_id: req.params.id,
+    name: name || 'Unknown Item',
+    category,
+    quantity: quantity || '1',
+    price: price != null && price !== '' ? Number(price) : null,
+  });
+  res.json({ id: result.lastInsertRowid, receipt_id: parseInt(req.params.id), name, category, quantity: quantity || '1', price });
+});
+
+// Update an item
+app.put('/api/items/:id', (req, res) => {
+  const { name, quantity, price } = req.body;
+  const category = categorizeItem(name || '');
+  updateItem.run({ id: req.params.id, name, category, quantity, price: price != null && price !== '' ? Number(price) : null });
+  res.json({ success: true });
+});
+
+// Delete an item
+app.delete('/api/items/:id', (req, res) => {
+  deleteItemById.run(req.params.id);
+  res.json({ success: true });
 });
 
 // Delete a receipt
