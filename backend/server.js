@@ -4,7 +4,7 @@ import multer from 'multer';
 import { mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
-import { ocrSpace } from 'ocr-space-api-wrapper';
+import Tesseract from 'tesseract.js';
 import {
   insertReceipt,
   insertItem,
@@ -131,18 +131,9 @@ app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
   try {
     const imagePath = req.file.path;
 
-    // Extract text from receipt image using OCR.space
-    const ocrResult = await ocrSpace(imagePath, {
-      apiKey: process.env.OCR_SPACE_API_KEY,
-      language: 'eng',
-      OCREngine: 2,
-    });
-
-    if (ocrResult.IsErroredOnProcessing || !ocrResult.ParsedResults?.length) {
-      throw new Error('OCR processing failed: ' + (ocrResult.ErrorMessage?.[0] || 'Unknown error'));
-    }
-
-    const ocrText = ocrResult.ParsedResults[0].ParsedText;
+    // Extract text from receipt image using Tesseract.js
+    const { data } = await Tesseract.recognize(imagePath, 'eng');
+    const ocrText = data.text;
     if (!ocrText?.trim()) {
       throw new Error('No text extracted from receipt image');
     }
