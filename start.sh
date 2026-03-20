@@ -3,12 +3,6 @@
 # Grocery Tracker Startup Script
 echo "🛒 Starting Grocery Tracker..."
 
-# Check for API key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo "⚠️  WARNING: ANTHROPIC_API_KEY not set. Receipt scanning will not work."
-  echo "   Set it with: export ANTHROPIC_API_KEY=your_key_here"
-fi
-
 # Start backend
 echo "🚀 Starting backend on http://localhost:3001"
 cd "$(dirname "$0")/backend"

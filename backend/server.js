@@ -93,7 +93,7 @@ function parseReceiptText(text) {
   const totalRe = /\b(grand\s+total|total\s+due|amount\s+due|balance\s+due|total)\b/i;
   for (const line of lines) {
     if (totalRe.test(line)) {
-      const prices = [...line.matchAll(/\$?(\d+\.\d{2})/g)];
+      const prices = [...line.matchAll(/[\$s]?(\d+\.\d{2})/g)];
       if (prices.length) {
         total_price = parseFloat(prices[prices.length - 1][1]);
         break;
@@ -103,8 +103,19 @@ function parseReceiptText(text) {
 
   // Items: lines that end with a price and aren't metadata
   const skipRe = /\b(subtotal|sub-total|tax|total|change|cash|credit|debit|visa|mastercard|thank|receipt|store|phone|address|www\.|http|savings|member|loyalty|coupon|balance|due)\b/i;
-  const itemRe = /^(.+?)\s{2,}\$?(\d+\.\d{2})\s*[A-Z*]?\s*$/;
-  const shortItemRe = /^(.+?)\s+\$?(\d+\.\d{2})\s*[A-Z*]?\s*$/;
+  // Matches prices with decimal (e.g. $4.99, s4.99) or without (e.g. s499, $1198)
+  const priceRe = /[\$s]?(\d+\.\d{2})|[\$s](\d{3,4})(?:\s|$)/;
+  const itemRe = /^(.+?)\s{2,}([\$s]?\d+\.\d{2}|[\$s]\d{3,4})\s*[A-Z*]?\s*$/;
+  const shortItemRe = /^(.+?)\s+([\$s]?\d+\.\d{2}|[\$s]\d{3,4})\s*[A-Z*]?\s*$/;
+
+  const parsePrice = (raw) => {
+    const m = priceRe.exec(raw);
+    if (!m) return null;
+    const digits = m[1] ?? m[2];
+    const price = parseFloat(digits);
+    // If no decimal point was present, interpret as cents (e.g. 499 → 4.99)
+    return digits.includes('.') ? price : price / 100;
+  };
 
   const items = [];
   for (const line of lines.slice(1)) {
@@ -112,8 +123,8 @@ function parseReceiptText(text) {
     const m = itemRe.exec(line) || shortItemRe.exec(line);
     if (m) {
       const name = m[1].replace(/\s+/g, ' ').trim();
-      const price = parseFloat(m[2]);
-      if (name.length >= 2 && name.length <= 60 && !/^\d+$/.test(name)) {
+      const price = parsePrice(m[2]);
+      if (price !== null && name.length >= 2 && name.length <= 60 && !/^\d+$/.test(name)) {
         items.push({ name, category: categorizeItem(name), quantity: '1', price });
       }
     }
@@ -132,7 +143,9 @@ app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
     const imagePath = req.file.path;
 
     // Extract text from receipt image using Tesseract.js
-    const { data } = await Tesseract.recognize(imagePath, 'eng');
+    const { data } = await Tesseract.recognize(imagePath, 'eng', {
+      langPath: '/home/node/grocery-tracker',
+    });
     const ocrText = data.text;
     if (!ocrText?.trim()) {
       throw new Error('No text extracted from receipt image');
